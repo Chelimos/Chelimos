@@ -1,0 +1,169 @@
+---
+title: "NSSE2023_population_list"
+author: "Sheila Chelimo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(stringi)
+```
+
+New student enrol will be used to identify the First-year students  enrolled in teh Fall 2022 semester
+```{r}
+library(haven)
+library(haven)
+stdenrl_2231_census <- read_sas("S:/IR.PS.DATA.PROD.TERM/2231-FA22/stdenrl_2231_census.sas7bdat", 
+    NULL)
+
+fresh22 <- stdenrl_2231_census %>% 
+  clean_names() 
+
+fresh22v1 <-fresh22 %>% 
+  filter(acad_career == "UGRD") %>% 
+  filter(withdraw_code == "NWD") %>% 
+  filter(enrolled_for_term_flag == "Y") %>% 
+  filter(sr_campus_override == "ATHN") %>% 
+  filter(ferpa == "N") %>% 
+  filter(deceased_flag == "N") %>% 
+  filter(!grepl("^AA|^AS", acad_plan)) %>% 
+  filter(!acad_plan%in% c('ND1202','ND1508','ND9918', 'ND9920','ND9955','ND9956')) %>% 
+#The ^ and $ are regex anchors for the beginning and ending of the string respectively. | is the OR operator
+    #df1 %>% filter(!grepl("^x|xx$", fruit))
+  # tot_cumulative == hours upto what they had earned as of census
+  mutate(hours = unt_inprog_gpa + unt_inprog_nogpa) 
+
+library(haven)
+hsch_hrs_earned_2231 <- read_sas("S:/Analytics and Research Projects/NSSE/hsch_hrs_earned_2231.sas7bdat", 
+    NULL)
+View(hsch_hrs_earned_2231)
+
+hsch_hrs_earned_2231 <- hsch_hrs_earned_2231 %>% 
+  clean_names()
+# join hours file with fresh file then take away the hours earned while in high school
+fresh22v2 <- left_join(fresh22v1, hsch_hrs_earned_2231, by = "emplid") %>% 
+ mutate(hsch_hours = ifelse(is.na(hsch_hours), 0, hsch_hours)) %>% 
+  mutate(no_hsch_hours = tot_cumulative  - hsch_hours) %>%  
+  mutate(nsse_hours = hours + no_hsch_hours) %>%  
+  mutate(ir_rank = case_when(nsse_hours < 30 ~ 1,
+                             nsse_hours >= 30 & nsse_hours < 60  ~ 2,
+                             nsse_hours >= 60 & nsse_hours < 90 ~ 3,
+                            nsse_hours >= 90 ~ 4,
+                            TRUE ~  nsse_hours)) %>% 
+  mutate(enrl_status = case_when(hours < 12 ~ 1,
+                                 hours > 11.9 ~ 2, 
+                                 TRUE ~ hours))%>% 
+  filter(ir_rank == 1) %>% 
+  mutate(class = "FY") 
+
+
+fresh22v2$enrl_status[fresh22v2$enrl_status == 1] = "PT"
+fresh22v2$enrl_status[fresh22v2$enrl_status == 2] = "FT"
+
+
+
+fresh22_final <- fresh22v2 %>% 
+  select(campus_id, name_first, name_last, email_addr_camp, email_addr_othr, class, enrl_status, ir_sex, birthdate, ir_ethn_category, acad_plan, acad_prog, acad_plan_study_field_descr, act_comp, sat_verbal, sat_math, sat_wr ) %>% 
+  separate(acad_plan, into = c("dtype", "mjfour"), sep = 2, remove = FALSE) %>% 
+  separate(birthdate, into = c("year", "mmdate"), sep = 4, remove = FALSE)
+  
+  # acad plan join from odwp
+acad_plan_field22_trim <-  acad_plan_field22 %>% 
+  select(ACAD_PLAN, ACAD_PLAN_DESC) %>% 
+  clean_names()
+
+
+  fresh22_final2 <- left_join(fresh22_final, acad_plan_field22_trim, by = "acad_plan") %>% 
+    distinct(campus_id, .keep_all = TRUE)
+
+# seniors
+  
+  seniors22 <- stdenrl_2231_census %>% 
+  clean_names() 
+  
+  
+  seniors <-seniors22 %>% 
+  filter(acad_career == "UGRD") %>% 
+  filter(withdraw_code == "NWD") %>% 
+  filter(enrolled_for_term_flag == "Y") %>% 
+  filter(sr_campus_override == "ATHN") %>% 
+  filter(ferpa == "N") %>% 
+  filter(deceased_flag == "N") %>% 
+    filter(!grepl("^ND", acad_plan)) %>% 
+    mutate(nsse_hours =tot_cumulative + unt_inprog_gpa + unt_inprog_nogpa) %>% 
+    mutate(hours = unt_inprog_gpa + unt_inprog_nogpa ) %>% 
+  mutate(ir_rank = case_when(nsse_hours < 30 ~ 1,
+                             nsse_hours >= 30 & nsse_hours < 60  ~ 2,
+                             nsse_hours >= 60 & nsse_hours < 90 ~ 3,
+                            nsse_hours >= 90 ~ 4,
+                            TRUE ~  nsse_hours)) %>% 
+  mutate(enrl_status = case_when(hours < 12 ~ 1,
+                                 hours > 11.9 ~ 2, 
+                                 TRUE ~ hours))%>% 
+  filter(ir_rank == 4) %>% 
+  mutate(class = "SR") 
+
+
+
+  seniors$enrl_status[seniors$enrl_status == 1] = "PT"
+seniors$enrl_status[seniors$enrl_status == 2] = "FT"
+
+
+
+seniors22_final <- seniors %>% 
+  select(campus_id, name_first, name_last, email_addr_camp, email_addr_othr, class, enrl_status, ir_sex, birthdate, ir_ethn_category, acad_plan, acad_prog, acad_plan_study_field_descr,act_comp, sat_verbal, sat_math, sat_wr ) %>% 
+  separate(acad_plan, into = c("dtype", "mjfour"), sep = 2, remove = FALSE) %>% 
+  separate(birthdate, into = c("year", "mmdate"), sep = 4, remove = FALSE)
+  
+  
+
+  seniors22_final2 <- left_join(seniors22_final, acad_plan_field22_trim, by = "acad_plan") %>% 
+    distinct(campus_id, .keep_all = TRUE)
+
+  
+  # bind seniors and fresh
+  
+  pop_file22 <- bind_rows( fresh22_final2,seniors22_final2)
+  
+  
+  # edit the variable names to match NSSE format
+  
+  pop_final <-  pop_file22 %>% 
+    distinct(campus_id, .keep_all = TRUE ) %>% 
+    mutate(race = case_when(ir_ethn_category== "American Indian/Alaska Native" ~ "IND",
+                           ir_ethn_category== "Asian" ~ "ASI",
+                           ir_ethn_category== "Black or African American" ~ "AFR",
+                           ir_ethn_category== "Hispanic of any race" ~ "HIS",
+                           ir_ethn_category== "Native Hawaiian/Pacific Isle" ~ "HPI",
+                           ir_ethn_category== "Non-resident alien" ~ "FOR",
+                           ir_ethn_category== "Two or more" ~ "MUL",
+                           ir_ethn_category== "Unknown" ~ "UNK",
+                           ir_ethn_category== "White" ~ "WHI",
+                            TRUE ~ ir_ethn_category))  %>% 
+    rename(SAT_V = sat_verbal,
+           rSAT_M = sat_math,
+           rSAT_EBWR = sat_wr,
+           "Student ID" = campus_id,
+           "First Name" = name_first,
+           "Last Name" = name_last,
+           "Primary Email Address" = email_addr_camp,
+           "Seconary Email Address" = email_addr_othr,
+           "Class Level" = class,
+           "Enrollment Status" = enrl_status,
+           "Sex" = ir_sex,
+           "Birth Year" = year) %>% 
+    select(1:8,10,23,12,13,16,22,17,18,19,20,21) 
+    
+    
+    
+  
+  write.csv(pop_final, file ="nsse_pop_file22.csv")
+```
+
